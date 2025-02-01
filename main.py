@@ -4,42 +4,60 @@ import numpy as np
 import imutils
 import cv2
 
+def preprocess_image(image_path):
+    """Load and preprocess the image by converting to grayscale and applying Gaussian blur."""
+    image = cv2.imread(image_path)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (11, 11), 0)
+    return image, gray, blurred
 
-image = cv2.imread('bulbs.jpg')
-gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-blurred = cv2.GaussianBlur(gray, (11, 11), 0)
+def apply_threshold(blurred):
+    """Apply adaptive thresholding for better segmentation."""
+    thresh = cv2.threshold(blurred, 200, 255, cv2.THRESH_BINARY)[1]
+    thresh = cv2.erode(thresh, None, iterations=2)
+    thresh = cv2.dilate(thresh, None, iterations=3)  # Reduced dilation for efficiency
+    return thresh
 
-thresh = cv2.threshold(blurred, 200, 255, cv2.THRESH_BINARY)[1]
+def filter_labels(thresh):
+    """Label connected components and filter small regions."""
+    labels = measure.label(thresh, connectivity=2, background=0)
+    mask = np.zeros(thresh.shape, dtype="uint8")
 
-thresh = cv2.erode(thresh, None, iterations=2)
-thresh = cv2.dilate(thresh, None, iterations=4)
+    for label in np.unique(labels):
+        if label == 0:
+            continue
 
-labels = measure.label(thresh, neighbors=8, background=0)
-mask = np.zeros(thresh.shape, dtype="uint8")
+        label_mask = np.zeros(thresh.shape, dtype="uint8")
+        label_mask[labels == label] = 255
+        num_pixels = cv2.countNonZero(label_mask)
 
-for label in np.unique(labels):
+        if num_pixels > 300:  # Keeps only relevant large components
+            mask = cv2.add(mask, label_mask)
 
-    if label == 0:
-        continue
+    return mask
 
-    labelMask = np.zeros(thresh.shape, dtype="uint8")
-    labelMask[labels == label] = 255
-    numPixels = cv2.countNonZero(labelMask)
+def detect_and_draw_contours(image, mask):
+    """Detect contours, sort them, and draw circles around detected objects."""
+    cnts = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cnts = imutils.grab_contours(cnts)
+    cnts = contours.sort_contours(cnts)[0]
 
-    if numPixels > 300:
-        mask = cv2.add(mask, labelMask)
+    for i, c in enumerate(cnts):
+        (x, y, w, h) = cv2.boundingRect(c)
+        ((cX, cY), radius) = cv2.minEnclosingCircle(c)
+        cv2.circle(image, (int(cX), int(cY)), int(radius), (0, 0, 255), 3)
+        cv2.putText(image, f"#{i + 1}", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
+def main():
+    image_path = 'bulbs.jpg'
+    image, gray, blurred = preprocess_image(image_path)
+    thresh = apply_threshold(blurred)
+    mask = filter_labels(thresh)
+    detect_and_draw_contours(image, mask)
 
-cnts = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-cnts = imutils.grab_contours(cnts)
-cnts = contours.sort_contours(cnts)[0]
+    cv2.imshow("Detected Bulbs", image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
-
-for (i, c) in enumerate(cnts):
-    (x, y, w, h) = cv2.boundingRect(c)
-    ((cX, cY), radius) = cv2.minEnclosingCircle(c)
-    cv2.circle(image, (int(cX), int(cY)), int(radius), (0, 0, 255), 3)
-    cv2.putText(image, "#{}".format(i + 1), (x, y - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 2)
-
-cv2.imshow("Image", image)
-cv2.waitKey(0)
+if __name__ == "__main__":
+    main()
